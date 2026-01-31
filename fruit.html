@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruit Slicer Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ffd93d 100%);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            height: 600px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 36px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4);
+            z-index: 10;
+        }
+
+        #lives {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 36px;
+            color: #fff;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4);
+            z-index: 10;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #fff;
+            display: none;
+            z-index: 20;
+        }
+
+        #gameOver h1 {
+            font-size: 64px;
+            margin-bottom: 20px;
+            text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.5);
+        }
+
+        #gameOver p {
+            font-size: 32px;
+            margin-bottom: 30px;
+        }
+
+        #restartBtn {
+            padding: 15px 40px;
+            font-size: 24px;
+            background: linear-gradient(135deg, #ff6b6b, #ffd93d);
+            border: none;
+            border-radius: 50px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s;
+        }
+
+        #restartBtn:hover {
+            transform: scale(1.1);
+        }
+
+        .slice-trail {
+            position: absolute;
+            pointer-events: none;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.8), transparent);
+            border-radius: 50%;
+            animation: fadeOut 0.3s ease-out forwards;
+        }
+
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+                transform: scale(2);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="canvas"></canvas>
+        <div id="score">Score: 0</div>
+        <div id="lives">❤️❤️❤️</div>
+        <div id="gameOver">
+            <h1>GAME OVER!</h1>
+            <p id="finalScore"></p>
+            <button id="restartBtn">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const livesElement = document.getElementById('lives');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Set canvas size
+        canvas.width = 800;
+        canvas.height = 600;
+
+        // Game state
+        let score = 0;
+        let lives = 3;
+        let fruits = [];
+        let particles = [];
+        let gameActive = true;
+        let mousePos = { x: 0, y: 0 };
+        let lastMousePos = { x: 0, y: 0 };
+
+        // Fruit types with colors matching red/yellow theme
+        const fruitTypes = [
+            { emoji: '🍎', color: '#ff4444', points: 10 },
+            { emoji: '🍊', color: '#ffa500', points: 10 },
+            { emoji: '🍋', color: '#ffeb3b', points: 10 },
+            { emoji: '🍒', color: '#ff1744', points: 15 },
+            { emoji: '🍓', color: '#ff5252', points: 15 },
+            { emoji: '🍑', color: '#ffab91', points: 10 },
+            { emoji: '💣', color: '#333', points: -50, isBomb: true }
+        ];
+
+        // Fruit class
+        class Fruit {
+            constructor() {
+                this.x = Math.random() * (canvas.width - 100) + 50;
+                this.y = canvas.height + 50;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = -12 - Math.random() * 5;
+                this.gravity = 0.3;
+                this.size = 50;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.2;
+                this.sliced = false;
+                
+                const type = fruitTypes[Math.floor(Math.random() * fruitTypes.length)];
+                this.emoji = type.emoji;
+                this.color = type.color;
+                this.points = type.points;
+                this.isBomb = type.isBomb || false;
+            }
+
+            update() {
+                this.vy += this.gravity;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.rotation += this.rotationSpeed;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.font = `${this.size}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.emoji, 0, 0);
+                ctx.restore();
+            }
+
+            isOffScreen() {
+                return this.y > canvas.height + 100;
+            }
+
+            checkSlice(mx, my) {
+                const dx = mx - this.x;
+                const dy = my - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return distance < this.size;
+            }
+        }
+
+        // Particle class for slice effects
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 8;
+                this.vy = (Math.random() - 0.5) * 8;
+                this.size = Math.random() * 8 + 4;
+                this.color = color;
+                this.life = 1;
+                this.decay = 0.02;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.2;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Sound effects using Web Audio API
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSliceSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.1);
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        }
+
+        function playBombSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.3);
+            
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+        }
+
+        function playMissSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+            
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+        }
+
+        // Spawn fruits
+        function spawnFruit() {
+            if (gameActive) {
+                fruits.push(new Fruit());
+            }
+        }
+
+        // Create slice trail effect
+        function createSliceTrail(x, y) {
+            const trail = document.createElement('div');
+            trail.className = 'slice-trail';
+            trail.style.left = x + 'px';
+            trail.style.top = y + 'px';
+            trail.style.width = '20px';
+            trail.style.height = '20px';
+            document.getElementById('gameContainer').appendChild(trail);
+            setTimeout(() => trail.remove(), 300);
+        }
+
+        // Slice fruit
+        function sliceFruit(fruit) {
+            if (fruit.isBomb) {
+                playBombSound();
+                lives--;
+                updateLives();
+                
+                // Create explosion effect
+                for (let i = 0; i < 30; i++) {
+                    particles.push(new Particle(fruit.x, fruit.y, '#ff4444'));
+                }
+                
+                if (lives <= 0) {
+                    endGame();
+                }
+            } else {
+                playSliceSound();
+                score += fruit.points;
+                scoreElement.textContent = `Score: ${score}`;
+                
+                // Create particle effect
+                for (let i = 0; i < 15; i++) {
+                    particles.push(new Particle(fruit.x, fruit.y, fruit.color));
+                }
+            }
+            
+            fruit.sliced = true;
+        }
+
+        // Update lives display
+        function updateLives() {
+            livesElement.textContent = '❤️'.repeat(Math.max(0, lives));
+        }
+
+        // End game
+        function endGame() {
+            gameActive = false;
+            gameOverScreen.style.display = 'block';
+            finalScoreElement.textContent = `Final Score: ${score}`;
+        }
+
+        // Restart game
+        function restartGame() {
+            score = 0;
+            lives = 3;
+            fruits = [];
+            particles = [];
+            gameActive = true;
+            scoreElement.textContent = 'Score: 0';
+            updateLives();
+            gameOverScreen.style.display = 'none';
+        }
+
+        // Mouse/touch events
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            lastMousePos = { ...mousePos };
+            mousePos = {
+                x: (e.clientX - rect.left) * (canvas.width / rect.width),
+                y: (e.clientY - rect.top) * (canvas.height / rect.height)
+            };
+            
+            if (gameActive) {
+                createSliceTrail(e.clientX - rect.left, e.clientY - rect.top);
+                checkSlices();
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            lastMousePos = { ...mousePos };
+            mousePos = {
+                x: (touch.clientX - rect.left) * (canvas.width / rect.width),
+                y: (touch.clientY - rect.top) * (canvas.height / rect.height)
+            };
+            
+            if (gameActive) {
+                createSliceTrail(touch.clientX - rect.left, touch.clientY - rect.top);
+                checkSlices();
+            }
+        });
+
+        function checkSlices() {
+            fruits.forEach(fruit => {
+                if (!fruit.sliced && fruit.checkSlice(mousePos.x, mousePos.y)) {
+                    sliceFruit(fruit);
+                }
+            });
+        }
+
+        // Game loop
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update and draw fruits
+            fruits = fruits.filter(fruit => {
+                if (fruit.sliced) return false;
+                
+                fruit.update();
+                fruit.draw();
+                
+                if (fruit.isOffScreen() && !fruit.isBomb) {
+                    if (gameActive) {
+                        lives--;
+                        updateLives();
+                        playMissSound();
+                        
+                        if (lives <= 0) {
+                            endGame();
+                        }
+                    }
+                    return false;
+                }
+                
+                return !fruit.isOffScreen();
+            });
+            
+            // Update and draw particles
+            particles = particles.filter(particle => {
+                particle.update();
+                particle.draw();
+                return particle.life > 0;
+            });
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start spawning fruits
+        setInterval(spawnFruit, 1000);
+        
+        // Restart button
+        restartBtn.addEventListener('click', restartGame);
+        
+        // Start game loop
+        gameLoop();
+    </script>
+</body>
+</html>
